@@ -7,30 +7,50 @@ interface MaintenancePhase {
   progress: number; // percentage
 }
 
-const maintenancePhases: MaintenancePhase[] = [
-  { name: 'Initializing maintenance', progress: 10, duration: 3 },
-  { name: 'Backing up database', progress: 25, duration: 8 },
-  { name: 'Updating server components', progress: 45, duration: 12 },
-  { name: 'Applying security patches', progress: 65, duration: 10 },
-  { name: 'Optimizing performance', progress: 80, duration: 8 },
-  { name: 'Running final tests', progress: 95, duration: 5 },
-  { name: 'Maintenance complete', progress: 100, duration: 2 }
-];
+interface MaintenanceStatus {
+  progress: number;
+  phaseIndex: number;
+  currentPhase: MaintenancePhase;
+  isComplete: boolean;
+  remainingTimeSeconds: number;
+  startTime: number;
+  phases: MaintenancePhase[];
+}
 
 function App() {
-  const [currentProgress, setCurrentProgress] = useState(0);
-  const [currentPhaseIndex, setCurrentPhaseIndex] = useState(0);
-  const [isComplete, setIsComplete] = useState(false);
-  
-  // Total estimated time in minutes
-  const totalEstimatedMinutes = 180; // 3 hours
+  const [maintenanceStatus, setMaintenanceStatus] = useState<MaintenanceStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Calculate remaining time based on progress
-  const getRemainingTime = (progress: number) => {
-    const remainingProgress = 100 - progress;
-    const remainingMinutes = Math.ceil((remainingProgress / 100) * totalEstimatedMinutes);
+  // API base URL - adjust for your environment
+  const API_BASE_URL = import.meta.env.PROD 
+    ? '' // Same origin in production
+    : 'http://localhost:3001'; // Development server
+
+  // Fetch maintenance status from server
+  const fetchMaintenanceStatus = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/maintenance/status`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      setMaintenanceStatus(data);
+      setError(null);
+    } catch (err) {
+      console.error('Failed to fetch maintenance status:', err);
+      setError('Failed to connect to server');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Calculate remaining time display format
+  const getRemainingTime = (remainingSeconds: number) => {
+    if (remainingSeconds <= 0) return "Complete";
     
-    if (remainingMinutes <= 0) return "Complete";
+    const remainingMinutes = Math.ceil(remainingSeconds / 60);
+    
     if (remainingMinutes < 60) return `${remainingMinutes} minutes`;
     
     const hours = Math.floor(remainingMinutes / 60);
@@ -46,55 +66,61 @@ function App() {
   };
 
   useEffect(() => {
-    let progressInterval: NodeJS.Timeout;
-    let phaseTimeout: NodeJS.Timeout;
+    // Initial fetch
+    fetchMaintenanceStatus();
 
-    const startNextPhase = (phaseIndex: number) => {
-      if (phaseIndex >= maintenancePhases.length) {
-        setIsComplete(true);
-        return;
-      }
+    // Set up polling to update status every 2 seconds
+    const interval = setInterval(fetchMaintenanceStatus, 2000);
 
-      const phase = maintenancePhases[phaseIndex];
-      const startProgress = phaseIndex > 0 ? maintenancePhases[phaseIndex - 1].progress : 0;
-      const targetProgress = phase.progress;
-      const progressIncrement = (targetProgress - startProgress) / (phase.duration * 10); // 10 updates per second
-
-      let currentProgressValue = startProgress;
-
-      progressInterval = setInterval(() => {
-        currentProgressValue += progressIncrement;
-        
-        if (currentProgressValue >= targetProgress) {
-          currentProgressValue = targetProgress;
-          setCurrentProgress(currentProgressValue);
-          clearInterval(progressInterval);
-          
-          // Move to next phase after a brief pause
-          phaseTimeout = setTimeout(() => {
-            setCurrentPhaseIndex(phaseIndex + 1);
-            startNextPhase(phaseIndex + 1);
-          }, 1000);
-        } else {
-          setCurrentProgress(currentProgressValue);
-        }
-      }, 100);
-    };
-
-    // Start the first phase after a brief delay
-    const initialTimeout = setTimeout(() => {
-      startNextPhase(0);
-    }, 1000);
-
-    return () => {
-      clearInterval(progressInterval);
-      clearTimeout(phaseTimeout);
-      clearTimeout(initialTimeout);
-    };
+    return () => clearInterval(interval);
   }, []);
 
-  const currentPhase = maintenancePhases[currentPhaseIndex] || maintenancePhases[maintenancePhases.length - 1];
-  const remainingTime = getRemainingTime(currentProgress);
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="max-w-2xl w-full text-center">
+          <div className="mb-8 flex justify-center">
+            <div className="relative">
+              <div className="absolute inset-0 bg-blue-500 rounded-full blur-xl opacity-20 animate-pulse"></div>
+              <div className="relative bg-white rounded-full p-6 shadow-lg">
+                <Settings className="w-12 h-12 text-blue-600 animate-spin" style={{ animationDuration: '3s' }} />
+              </div>
+            </div>
+          </div>
+          <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl p-12 border border-white/20">
+            <h1 className="text-2xl font-bold text-gray-800 mb-4">Loading maintenance status...</h1>
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden shadow-inner">
+              <div className="h-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full animate-pulse"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error || !maintenanceStatus) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="max-w-2xl w-full text-center">
+          <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl p-12 border border-white/20">
+            <h1 className="text-2xl font-bold text-red-600 mb-4">Connection Error</h1>
+            <p className="text-gray-600 mb-6">{error || 'Unable to load maintenance status'}</p>
+            <button 
+              onClick={fetchMaintenanceStatus}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const { progress, currentPhase, isComplete, remainingTimeSeconds, phaseIndex, phases } = maintenanceStatus;
+  const remainingTime = getRemainingTime(remainingTimeSeconds);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -173,7 +199,7 @@ function App() {
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a 
-                href="mailto:support@company.com" 
+                href="mailto:smwsupport@arcadiamusicacademy.com" 
                 className="group inline-flex items-center gap-3 bg-gray-900 hover:bg-gray-800 text-white px-6 py-3 rounded-full transition-all duration-300 hover:shadow-lg hover:scale-105"
               >
                 <Mail className="w-4 h-4" />
@@ -187,7 +213,7 @@ function App() {
           <div className="pt-8 border-t border-gray-100">
             <div className="flex justify-between text-sm text-gray-500 mb-2">
               <span>Progress</span>
-              <span>{Math.round(currentProgress)}%</span>
+              <span>{Math.round(progress)}%</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden shadow-inner">
               <div 
@@ -196,7 +222,7 @@ function App() {
                     ? 'bg-gradient-to-r from-green-500 to-emerald-500' 
                     : 'bg-gradient-to-r from-blue-500 to-indigo-500'
                 }`}
-                style={{ width: `${currentProgress}%` }}
+                style={{ width: `${progress}%` }}
               >
                 <div className="h-full bg-white/20 rounded-full animate-pulse"></div>
               </div>
@@ -204,11 +230,11 @@ function App() {
             
             {/* Phase Timeline */}
             <div className="mt-4 flex justify-between text-xs text-gray-400">
-              {maintenancePhases.slice(0, -1).map((phase, index) => (
+              {phases.slice(0, -1).map((phase: MaintenancePhase, index: number) => (
                 <div 
                   key={index}
                   className={`transition-colors duration-300 ${
-                    index <= currentPhaseIndex ? 'text-blue-600 font-medium' : ''
+                    index <= phaseIndex ? 'text-blue-600 font-medium' : ''
                   }`}
                 >
                   {phase.progress}%
@@ -220,7 +246,7 @@ function App() {
 
         {/* Footer */}
         <div className="mt-8 text-gray-400 text-sm">
-          <p>© 2025 Your Company. We appreciate your patience.</p>
+          <p>© 2025 arcadiamusicacademy.com. We appreciate your patience.</p>
         </div>
       </div>
     </div>

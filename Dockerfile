@@ -1,5 +1,5 @@
 # Use Node.js 18 Alpine as base image for smaller size
-FROM node:18-alpine as build
+FROM node:18-alpine
 
 # Set working directory
 WORKDIR /app
@@ -7,26 +7,20 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies (including production dependencies)
+RUN npm ci
 
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the React application
 RUN npm run build
 
-# Use nginx alpine for serving static files
-FROM nginx:alpine
+# Expose port 3001 (or whatever PORT is set via environment)
+EXPOSE 3001
 
-# Copy built assets from build stage
-COPY --from=build /app/dist /usr/share/nginx/html
+# Set environment to production
+ENV NODE_ENV=production
 
-# Copy custom nginx configuration
-COPY nginx.conf /etc/nginx/nginx.conf
-
-# Expose port 80
-EXPOSE 80
-
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Start the Express server (which serves both API and static files)
+CMD ["npm", "start"]
